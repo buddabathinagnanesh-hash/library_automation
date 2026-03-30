@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }} - Library Admin</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        #video-container {
+            position: relative;
+            width: 100%;
+            max-width: 540px;
+            margin: auto;
+            border-radius: 20px;
+            overflow: hidden;
+            background: #000;
+            border: 4px solid #1e293b;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+        }
+
+        #webcam-video {
+            width: 100%;
+            display: block;
+            transform: scaleX(-1);
+            /* Mirror view for user convenience */
+        }
+
+        #scan-line {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: #3b82f6;
+            box-shadow: 0 0 20px #3b82f6, 0 0 40px #3b82f6;
+            animation: scan 2.5s ease-in-out infinite;
+            z-index: 5;
+        }
+
+        @keyframes scan {
+
+            0%,
+            100% {
+                top: 5%;
+            }
+
+            50% {
+                top: 95%;
+            }
+        }
+
+        .loading-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.85);
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            backdrop-filter: blur(4px);
+        }
+
+        .biometric-frame {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 70%;
+            height: 70%;
+            border: 2px dashed rgba(59, 130, 246, 0.4);
+            border-radius: 50% 50% 40% 40%;
+            pointer-events: none;
+            z-index: 4;
+        }
+    </style>
+</head>
+
+<body class="login-body">
+    <div class="container d-flex align-items-center justify-content-center min-vh-100">
+        <div class="card p-4 p-md-5 shadow-lg border-0 rounded-4 text-center" style="max-width: 650px; width: 100%;">
+
+            <div class="mb-4">
+                <i class="bi bi-shield-check fs-1 text-primary mb-2"></i>
+                <h2 class="fw-bold text-white mb-2">{{ title }}</h2>
+                <p class="text-muted small">{{ subtitle }}</p>
+            </div>
+
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }} rounded-3 small py-2 mb-4">{{ message }}</div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            <div id="video-container" class="mb-5 position-relative">
+                <video id="webcam-video" autoplay playsinline></video>
+                <div id="scan-line"></div>
+                <div class="biometric-frame"></div>
+                <div class="loading-overlay" id="loading">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status">
+                        </div>
+                        <p class="text-white fw-bold">Analyzing Biometrics...</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-grid gap-3">
+                <button id="capture-btn" class="btn btn-primary btn-lg py-3 rounded-pill fw-bold shadow-lg">
+                    <i class="bi bi-camera me-2"></i> Capture & Verify Identity
+                </button>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-link text-muted text-decoration-none small">Cancel &
+                    Return</a>
+            </div>
+
+            <p id="error-msg" class="text-danger small mt-4 p-2 bg-danger bg-opacity-10 rounded" style="display:none;">
+            </p>
+
+            <!-- Hidden elements for capture -->
+            <canvas id="capture-canvas" style="display:none;"></canvas>
+            <form id="capture-form" action="{{ target_route }}" method="POST">
+                <input type="hidden" name="image_data" id="image_data">
+                {% if student_phone %}<input type="hidden" name="student_phone" value="{{ student_phone }}">{% endif %}
+                {% if student_name %}<input type="hidden" name="student_name" value="{{ student_name }}">{% endif %}
+                {% if book_id %}<input type="hidden" name="book_id" value="{{ book_id }}">{% endif %}
+                {% if action %}<input type="hidden" name="action" value="{{ action }}">{% endif %}
+                {% if isbn %}<input type="hidden" name="isbn" value="{{ isbn }}">{% endif %}
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcam-video');
+        const canvas = document.getElementById('capture-canvas');
+        const captureBtn = document.getElementById('capture-btn');
+        const imageDataInput = document.getElementById('image_data');
+        const captureForm = document.getElementById('capture-form');
+        const loading = document.getElementById('loading');
+        const errorMsg = document.getElementById('error-msg');
+
+        // Access webcam
+        async function setupWebcam() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Webcam error:", err);
+                errorMsg.innerText = "Error: Camera access denied. Face verification is mandatory for this action.";
+                errorMsg.style.display = "block";
+                captureBtn.disabled = true;
+                captureBtn.classList.remove('btn-primary');
+                captureBtn.classList.add('btn-secondary');
+            }
+        }
+
+        setupWebcam();
+
+        captureBtn.addEventListener('click', () => {
+            loading.style.display = 'flex';
+            captureBtn.disabled = true;
+            captureBtn.innerHTML = '<span class="spinner-grow spinner-grow-sm me-2"></span> Processing...';
+
+            // Prepare canvas
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+
+            // Mirror the capture to match the mirrored preview
+            context.translate(canvas.width, 0);
+            context.scale(-1, 1);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Convert to Base64
+            const dataURL = canvas.toDataURL('image/jpeg', 0.85);
+            imageDataInput.value = dataURL;
+
+            // Submit form
+            captureForm.submit();
+        });
+    </script>
+</body>
+
+</html>
